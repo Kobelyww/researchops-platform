@@ -1,6 +1,43 @@
-
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+.beads/dolt/
+.beads/staging.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Env & secrets
+.env
+.env.local
+*.key
+
+# Node
+node_modules/
+.next/
+out/
+
+# Sandbox workspaces & artifacts
+.sandbox/
+workspace/
+artifacts/
+*.log
+
+# OS
+.DS_Store
+
+# Runtime data (DB, workspaces, checkpoints)
+.data/

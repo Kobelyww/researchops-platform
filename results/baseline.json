@@ -1,0 +1,121 @@
+{
+  "generated_at": "2026-09-19T20:05:04.927289+00:00",
+  "provider": "mock",
+  "cases": [
+    {
+      "case_id": "res_001",
+      "success": true,
+      "tool_selection": 1.0,
+      "tool_execution_success": 1.0,
+      "citation_precision": 1.0,
+      "groundedness": 1.0,
+      "recovery": 1.0,
+      "hallucination_penalty": 0.0,
+      "latency_s": 0.14,
+      "cost_usd": 0.0,
+      "notes": []
+    },
+    {
+      "case_id": "res_002",
+      "success": true,
+      "tool_selection": 0.5,
+      "tool_execution_success": 1.0,
+      "citation_precision": 1.0,
+      "groundedness": 1.0,
+      "recovery": 1.0,
+      "hallucination_penalty": 0.0,
+      "latency_s": 0.1,
+      "cost_usd": 0.0,
+      "notes": []
+    },
+    {
+      "case_id": "res_003",
+      "success": true,
+      "tool_selection": 1.0,
+      "tool_execution_success": 1.0,
+      "citation_precision": 1.0,
+      "groundedness": 1.0,
+      "recovery": 1.0,
+      "hallucination_penalty": 0.0,
+      "latency_s": 0.1,
+      "cost_usd": 0.0,
+      "notes": []
+    },
+    {
+      "case_id": "res_004",
+      "success": true,
+      "tool_selection": 1.0,
+      "tool_execution_success": 1.0,
+      "citation_precision": 1.0,
+      "groundedness": 1.0,
+      "recovery": 1.0,
+      "hallucination_penalty": 0.0,
+      "latency_s": 0.1,
+      "cost_usd": 0.0,
+      "notes": []
+    },
+    {
+      "case_id": "gh_001",
+      "success": true,
+      "tool_selection": 1.0,
+      "tool_execution_success": 1.0,
+      "citation_precision": 1.0,
+      "groundedness": 1.0,
+      "recovery": 1.0,
+      "hallucination_penalty": 0.0,
+      "latency_s": 0.11,
+      "cost_usd": 0.0,
+      "notes": []
+    },
+    {
+      "case_id": "gh_002",
+      "success": true,
+      "tool_selection": 1.0,
+      "tool_execution_success": 1.0,
+      "citation_precision": 1.0,
+      "groundedness": 1.0,
+      "recovery": 1.0,
+      "hallucination_penalty": 0.0,
+      "latency_s": 0.11,
+      "cost_usd": 0.0,
+      "notes": []
+    },
+    {
+      "case_id": "gh_003",
+      "success": true,
+      "tool_selection": 1.0,
+      "tool_execution_success": 1.0,
+      "citation_precision": 1.0,
+      "groundedness": 1.0,
+      "recovery": 1.0,
+      "hallucination_penalty": 0.0,
+      "latency_s": 0.1,
+      "cost_usd": 0.0,
+      "notes": []
+    },
+    {
+      "case_id": "gh_004",
+      "success": true,
+      "tool_selection": 1.0,
+      "tool_execution_success": 1.0,
+      "citation_precision": 1.0,
+      "groundedness": 1.0,
+      "recovery": 1.0,
+      "hallucination_penalty": 0.0,
+      "latency_s": 0.11,
+      "cost_usd": 0.0,
+      "notes": []
+    }
+  ],
+  "summary": {
+    "task_success_rate": 1.0,
+    "tool_selection_accuracy": 0.9375,
+    "tool_execution_success": 1.0,
+    "citation_precision": 1.0,
+    "groundedness": 1.0,
+    "recovery_rate": 1.0,
+    "avg_latency_s": 0.10875,
+    "avg_cost_usd": 0.0,
+    "n_cases": 8
+  }
+}

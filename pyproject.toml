@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "researchops-agent"
+version = "0.1.0"
+description = "ResearchOps — production-grade autonomous research & experiment engineering agent platform"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Kobelyww" }]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "sqlalchemy>=2.0",
+    "aiosqlite>=0.20",
+    "greenlet>=3.0",
+    "langgraph>=0.2.50",
+    "langgraph-checkpoint-sqlite>=2.0",
+    "mcp>=1.2",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+docker = ["docker>=7.0"]
+postgres = ["asyncpg>=0.29"]
+redis = ["redis>=5.0"]
+browser = ["playwright>=1.44"]
+otel = ["opentelemetry-sdk>=1.25", "opentelemetry-api>=1.25"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "docker>=7.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/researchops", "src/researchops_api"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]

@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "researchops-research": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "researchops.mcp.research_server"],
+      "env": {}
+    },
+    "researchops-experiment": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "researchops.mcp.experiment_server"],
+      "env": {}
+    },
+    "researchops-github": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "researchops.mcp.github_server"],
+      "env": {
+        "GITHUB_TOKEN": "set-your-token-or-use-env"
+      }
+    }
+  }
+}

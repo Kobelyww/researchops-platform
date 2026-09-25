@@ -1,0 +1,18 @@
+# ResearchOps API + worker image.
+# For sandbox isolation the container talks to the host Docker daemon via the
+# mounted socket; RESEARCHOPS_SANDBOX_BACKEND=docker switches the sandbox.
+FROM python:3.11-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+RUN pip install --no-cache-dir -e ".[docker]" && \
+    useradd --create-home --shell /bin/bash opsuser && \
+    mkdir -p /app/.data && chown -R opsuser:opsuser /app
+
+USER opsuser
+EXPOSE 8000
+
+CMD ["python", "-m", "uvicorn", "researchops_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

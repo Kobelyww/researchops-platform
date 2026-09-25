@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: researchops
+      POSTGRES_PASSWORD: researchops
+      POSTGRES_DB: researchops
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U researchops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    profiles: ["full"]
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    profiles: ["full"]
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment: &ops_env
+      RESEARCHOPS_EXECUTION_MODE: ${RESEARCHOPS_EXECUTION_MODE:-inline}
+      RESEARCHOPS_DATABASE_URL: ${RESEARCHOPS_DATABASE_URL:-sqlite+aiosqlite:///./.data/researchops.db}
+      RESEARCHOPS_LLM_PROVIDER: ${RESEARCHOPS_LLM_PROVIDER:-mock}
+      RESEARCHOPS_LLM_API_KEY: ${RESEARCHOPS_LLM_API_KEY:-}
+      RESEARCHOPS_LLM_BASE_URL: ${RESEARCHOPS_LLM_BASE_URL:-https://api.openai.com/v1}
+      RESEARCHOPS_LLM_MODEL: ${RESEARCHOPS_LLM_MODEL:-gpt-4o-mini}
+      RESEARCHOPS_MODEL_ROUTES: ${RESEARCHOPS_MODEL_ROUTES:-{}}
+      RESEARCHOPS_API_KEY: ${RESEARCHOPS_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - opsdata:/app/.data
+      - /var/run/docker.sock:/var/run/docker.sock  # docker-sandbox backend
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    command: ["python", "-m", "researchops.workers.runner"]
+    environment:
+      <<: *ops_env
+      RESEARCHOPS_EXECUTION_MODE: worker
+    volumes:
+      - opsdata:/app/.data
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    profiles: ["worker"]
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  opsdata:
