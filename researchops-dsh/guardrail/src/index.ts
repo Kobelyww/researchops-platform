@@ -137,6 +137,13 @@ export function apply(ctx: Context, config: Config): void {
       }
     }
 
+    // The final publication sign-off is never pre-approvable: it always
+    // routes through the approval seam, even in headless autoApprove mode
+    // (maps the Python design's rule that HIGH actions need explicit consent).
+    if (exec.name === 'researchops_publish_report') {
+      return { kind: 'ask', reason: 'researchops: publishing the final report requires operator sign-off' }
+    }
+
     if (RANK[risk] >= RANK.medium && !config.autoApprove) {
       return {
         kind: 'ask',

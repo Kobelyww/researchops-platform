@@ -65,11 +65,15 @@
         maxToolCalls: 200
 
     # ResearchOps pipeline orchestrator (replaces the one-shot runner).
+    # signOff: 'approval' (default) routes the final publish through the
+    # approval seam; 'auto' is the headless-CI mode that publishes on review
+    # approval without the operator ask.
     - id: researchops-runner
       name: '@researchops/dsh-orchestrator'
       inject: ['headlessStartup']
       config:
         maxRepairAttempts: 2
+        signOff: approval
 
     # Mount the existing Python research MCP server (arXiv, Semantic Scholar,
     # allowlisted web fetch) — no porting, stdio child process.

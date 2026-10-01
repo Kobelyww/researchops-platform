@@ -93,3 +93,25 @@ report.md 写入 + exit 0
 
 里程碑 2 待办:管线状态持久化为 session 事件(现在是内存+report.md)、最终签批
 接 `ctx.approval` 应答器、并行阶段(experimental agent-team)。
+
+---
+
+## 里程碑 2 交付(核心源码修改)✅
+
+这次改的是 **dsh 内核本身**(fork 式修改,标注 [researchops]):
+
+1. **发布签批走 core approval 接缝**:`researchops_publish_report` 工具注册在
+   review agent 作用域;guardrail 对该工具**无条件 ask**(签批永不预批准);
+   headless 下无应答器 → fail-closed(exit 1 + draft 报告);web/桌面端由人点击。
+   两种模式均实测:`signOff: approval` → exit 1(publish attempted=true,
+   approved=false);`signOff: auto`(CI 模式)→ exit 0。
+2. **`pipeline-state.json` 持久化**:goal/plan/citations(接地判定)/experiments/
+   repairs/review/publish 全量落盘,与 report.md 并列。
+3. **web+桌面表面接入 researchops bundle**:`packages/boot/app-boot/src/profile.ts`
+   的 web 模板(桌面保留 profile 从它克隆)加入 `@researchops/dsh-bundle`
+   — guardrail + MCP + persona 对所有 web/desktop agent 生效。
+4. **桌面端品牌重塑**:productName → "ResearchOps Harness",About/退出菜单、
+   协议 schemes(dsh, rops)、麦克风描述同步更新。
+
+排期中(milestone 3):管线状态作为一等 session 事件投影、experimental
+agent-team 并行阶段评估。

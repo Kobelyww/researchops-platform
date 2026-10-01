@@ -121,12 +121,19 @@ def _decide(messages: list[dict]) -> tuple[list[dict] | None, str | None, str]:
         return None, f'```json {json.dumps(report)} ```', "stop"
 
     if stage == "review":
-        # the reviewer is toolless: its evidence is the experiment JSON embedded
-        # in the prompt (json.dumps escapes quotes, so match on plain tokens)
+        # call the publication sign-off tool first, then the verdict
+        if not _ran_tool(messages, "researchops_publish_report"):
+            return [{
+                "id": "call_publish_1", "type": "function", "index": 0,
+                "function": {"name": "researchops_publish_report",
+                             "arguments": json.dumps({"summary": "Baseline reproduction report with verified arXiv citations"})},
+            }], None, finish
         everything = json.dumps(messages, default=str).replace("\\", "")
         approved = ('"status": "success"' in everything) or ('"status":"success"' in everything)
+        verdict = "approved" if approved else "gated by the operator"
         return None, (
-            '```json {"approved": ' + str(approved).lower() + ', "confidence": 0.9, "issues": []} ```'
+            '```json {"approved": ' + str(approved).lower() + ', "confidence": 0.9, "issues": []} ``` '
+            f'Publication was {verdict}.'
         ), "stop"
 
     return None, "Done.", "stop"
@@ -137,6 +144,7 @@ async def chat(request: Request):
     body = await request.json()
     messages = body.get("messages", [])
     tool_calls, content, finish = _decide(messages)
+    print(f"[STAGE_DEBUG] stage={_stage(messages)} tools={len([m for m in messages if m.get('role')=='tool'])} -> {'toolcall ' + tool_calls[0]['function']['name'] if tool_calls else 'final ' + str(len(content or ''))}")
 
     async def sse():
         chunk_id = f"chatcmpl-mock-{int(time.time()*1000)}"

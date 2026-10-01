@@ -34,6 +34,7 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-headless'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -49,10 +50,17 @@ export const inject = ['headlessStartup', 'agentDefaultModel', 'agents', 'sessio
 export interface Config {
   /** Maximum diagnose→repair rounds after a failed evaluation. */
   maxRepairAttempts: number
+  /**
+   * Publication sign-off mode: 'approval' (default) requires the operator to
+   * answer the researchops_publish_report ask; 'auto' is the headless-CI
+   * mode that publishes once the review approves (documented deviation).
+   */
+  signOff: 'approval' | 'auto'
 }
 
 export const Config: z<Config> = z.object({
   maxRepairAttempts: z.number().default(2),
+  signOff: z.union(['approval', 'auto'] as const).default('approval'),
 })
 
 /** Per-stage tool subsets (global tool names; empty allow = toolless stage). */
@@ -82,7 +90,11 @@ function lastAssistantText(session: Session): string {
   for (let seq = 0; seq < length; seq++) {
     // Structural read of durable session events, mirroring the headless
     // runner's summarize() (module augmentation migration deferred there too).
-    const event = session.eventAt(SessionSeq(seq)) as unknown as { type: string; data?: { message?: { content?: Array<{ type: string; text?: string }> } } }
+    // Structural read; module augmentation migration is deferred upstream too.
+    const event = session.eventAt(SessionSeq(seq)) as unknown as {
+      type: string
+      data?: { message?: { content?: Array<{ type: string; text?: string }> } }
+    }
     if (event?.type !== 'assistant/message') continue
     const joined = (event.data?.message?.content ?? [])
       .filter(block => block.type === 'text')
@@ -117,15 +129,16 @@ async function runStage(
   cwd: string,
   stage: { kind: keyof typeof STAGE_TOOLS; persona: string; prompt: string },
   stderr: { write(chunk: string): unknown },
+  setupOverride?: (agentCtx: Context) => void,
 ): Promise<StageRun> {
   const allow = STAGE_TOOLS[stage.kind] ?? []
-  const setup = (agentCtx: Context): void => {
+  const setup = setupOverride ?? ((agentCtx: Context): void => {
     const selected: ModelSelectionRef = { current: selection, assembled: undefined }
     installModelSelection(agentCtx, selected)
     // Scope the global tools down to this stage's subset; an empty allow list
     // yields a toolless stage (planner/reviewer read and write no tools).
     agentCtx.tools?.restrict({ allow })
-  }
+  })
   const { agent } = await agents.create({
     sessionId: brandString<SessionId>(`session-${randomUUID()}`),
     meta: { cwd },
@@ -246,17 +259,68 @@ async function run(
   }
 
   // ---- review --------------------------------------------------------------
+  // The review stage owns the publication gate: the model calls
+  // researchops_publish_report after its verdict; the call classifies
+  // MEDIUM in the guardrail, so the ask routes through ctx.approval — a human
+  // answerer in web/desktop, fail-closed 'unavailable' in headless. The
+  // pipeline publishes only when the call was approved and succeeded.
+  let publishApproved = false
+  let publishAttempted = false
+  const reviewSetup = (agentCtx: Context): void => {
+    const selected: ModelSelectionRef = { current: selection, assembled: undefined }
+    installModelSelection(agentCtx, selected)
+    agentCtx.tools?.restrict({ allow: [] })
+    if (config.signOff === 'auto') return // CI mode: publication pre-approved
+    agentCtx.tools?.register(defineTool({
+      name: 'researchops_publish_report',
+      description: 'Request human approval to publish the final ResearchOps report. Call this once after your verdict JSON.',
+      parameters: {
+        summary: { type: 'string', required: true, description: 'One-sentence summary of the report being published.' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { published: { type: 'boolean', required: true } },
+        },
+        render: (_args: unknown, value: unknown) => {
+          const v = (value ?? {}) as { published?: boolean; summary?: string }
+          return [{ type: 'text', text: `publication ${v.published ? 'approved' : 'not approved'}: ${v.summary ?? ''}` }]
+        },
+      },
+      execute: async (args: { summary: string }): Promise<{ published: boolean; summary: string }> => {
+        publishAttempted = true
+        publishApproved = true
+        return { published: true, summary: String(args.summary ?? '') }
+      },
+    }))
+  }
   const deterministic: pipeline.Review = {
     approved: success,
     confidence: state.citations.length === 0 ? (success ? 0.6 : 0.2)
       : pipeline.groundCitations(state, evidence).filter(c => c.verified).length / state.citations.length,
     issues: success ? [] : ['evaluation did not produce a successful experiment with metrics'],
   }
-  const reviewRun = await stage('review', 'reviewer',
+  const reviewPrompt =
     `[ResearchOps STAGE:review]\nGoal: ${task}\n\nFindings:\n${state.findings.join('\n\n').slice(0, 4000)}\n\n` +
     `Experiments: ${JSON.stringify(state.experiments.map(e => ({ name: e.name, status: e.status, metrics: e.metrics })))}\n\n` +
-    'End with a fenced JSON block: {"approved": bool, "confidence": 0.0-1.0, "issues": [str]}. Be strict.')
+    'End with a fenced JSON block: {"approved": bool, "confidence": 0.0-1.0, "issues": [str]}. Be strict. ' +
+    'Then call the researchops_publish_report tool with a one-sentence summary to request publication approval; ' +
+    'if the call is denied, state in your final answer that the report was not approved for publication.'
+  const reviewRun = await runStage(agents, selection, cwd,
+    { kind: 'review', persona: 'reviewer', prompt: reviewPrompt }, io.stderr, reviewSetup)
+  stageAgents.push(reviewRun.agent)
   state.review = pipeline.parseReview(reviewRun.output, deterministic)
+  // approval flow evidence: a denied ask surfaces as an error tool result
+  const reviewEvents = toolResultText(reviewRun.agent.session)
+  progress(io.stderr, `review evidence: ${reviewEvents.length} chars, publish-name=${reviewEvents.includes('researchops_publish_report')}, approval-denied=${reviewEvents.includes('requires approval')}`)
+  if (!publishAttempted && (reviewEvents.includes('researchops_publish_report') || reviewEvents.includes('requires approval'))) {
+    publishAttempted = true // the call was made but denied before execution
+  }
+  if (config.signOff === 'auto') {
+    publishAttempted = true
+    publishApproved = state.review !== undefined && state.review.approved
+  }
 
   // ---- report --------------------------------------------------------------
   const report = pipeline.buildReport(state, evidence)
@@ -271,7 +335,26 @@ async function run(
     await sessions.flush(agent.session).catch(() => undefined)
   }
   io.stdout.write(report + '\n')
-  const completed = state.review !== undefined && state.review.approved && success
+  // durable pipeline-state artifact (milestone 2): the state that a
+  // projection can also rebuild from the stage sessions' events
+  const pipelineStatePath = join(cwd, 'pipeline-state.json')
+  try {
+    await writeFile(pipelineStatePath, JSON.stringify({
+      goal: state.goal,
+      plan: state.plan,
+      citations: pipeline.groundCitations(state, evidence),
+      experiments: state.experiments,
+      repairAttempts: state.repairAttempts,
+      review: state.review,
+      publish: { attempted: publishAttempted, approved: publishApproved },
+      success,
+      finishedAt: new Date().toISOString(),
+    }, null, 2))
+    progress(io.stderr, `pipeline state written to ${pipelineStatePath}`)
+  } catch {
+    progress(io.stderr, `could not write ${pipelineStatePath}`)
+  }
+  const completed = success && state.review !== undefined && state.review.approved && publishApproved
   io.exit(completed ? 0 : 1)
 }
 
