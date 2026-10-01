@@ -1,10 +1,10 @@
-"""Deterministic OpenAI-compatible mock LLM for the dsh vertical slice.
+"""Deterministic OpenAI-compatible mock LLM for the dsh ResearchOps profile.
 
-Serves scripted streaming chat.completions so the dsh researchops profile runs
-fully offline (no API key): the model first calls the mounted Python research
-MCP tool (real arXiv data flows back), then attempts a bash command (which the
-ResearchOps guardrail policy gates), then produces a final cited answer keyed
-on what it actually observed.
+Routes on the [ResearchOps STAGE:<name>] marker the orchestrator puts in each
+stage agent's first user message, so the full pipeline (planner → research →
+experiment → repair → review) runs offline with zero API keys while REAL data
+still flows (the search tool returns live arXiv results, bash runs in the
+sandbox).
 
 Run:  .venv/bin/python scripts/mock_dsh_llm.py --port 8901
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from typing import Any
 
@@ -20,29 +21,43 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 
 app = FastAPI()
-STATE: dict[str, dict[str, Any]] = {}  # conversation key -> counters
 
 
-def _extract(messages: list[dict]) -> dict[str, Any]:
-    """Classify where this request sits in the scripted conversation."""
-    tool_results = [m for m in messages if m.get("role") == "tool"]
-    tool_blob = json.dumps(tool_results, default=str)
-    searched = any("search_papers" in json.dumps(m.get("tool_calls") or [], default=str) for m in messages)
-    ran_bash = any('"bash"' in json.dumps(m.get("tool_calls") or [], default=str) for m in messages)
-    return {
-        "tool_results": tool_results,
-        "tool_blob": tool_blob,
-        "searched": searched,
-        "ran_bash": ran_bash,
-        "n_tools": len(tool_results),
-    }
+def _last_user_text(messages: list[dict]) -> str:
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            content = m.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    return ""
 
 
-def _paper_title(state: dict[str, Any]) -> str:
-    """Pull a real paper title out of the MCP tool result (proves data flowed)."""
-    import re
+def _stage(messages: list[dict]) -> str:
+    """The stage marker may not be in the LAST user message: dsh appends
+    runtime-context user messages after the task prompt, so scan all of them."""
+    for m in messages:
+        if m.get("role") != "user":
+            continue
+        content = m.get("content")
+        text = content if isinstance(content, str) else "".join(
+            b.get("text", "") for b in content if isinstance(b, dict)) if isinstance(content, list) else ""
+        found = re.search(r"\[ResearchOps STAGE:(\w+)\]", text or "")
+        if found:
+            return found.group(1)
+    return "unknown"
 
-    blob = state["tool_blob"]
+
+def _tool_blob(messages: list[dict]) -> str:
+    return json.dumps([m for m in messages if m.get("role") == "tool"], default=str)
+
+
+def _ran_tool(messages: list[dict], name: str) -> bool:
+    return any(name in json.dumps(m.get("tool_calls") or [], default=str) for m in messages)
+
+
+def _paper_title(blob: str) -> str:
     for marker in ('"title": "', '\\"title\\": \\"', '"title":"'):
         idx = blob.find(marker)
         if idx >= 0:
@@ -54,47 +69,74 @@ def _paper_title(state: dict[str, Any]) -> str:
             if title:
                 return title[:120]
     m = re.search(r"(Contrastive|Speaker|Verification)[^\"]{5,90}", blob)
-    if m:
-        return m.group(0)[:120]
-    return "the surveyed paper"
+    return m.group(0)[:120] if m else "the surveyed paper"
+
+
+def _decide(messages: list[dict]) -> tuple[list[dict] | None, str | None, str]:
+    """Returns (tool_calls, content, finish_reason) for this stage request."""
+    stage = _stage(messages)
+    blob = _tool_blob(messages)
+    finish = "tool_calls"
+
+    if stage == "planner":
+        return None, (
+            '{"tasks": ['
+            '{"id": "t1", "kind": "research", "title": "Survey contrastive speaker verification papers"}, '
+            '{"id": "t2", "kind": "experiment", "title": "Run the baseline extraction check", "depends_on": ["t1"]}]}'
+        ), "stop"
+
+    if stage == "research":
+        if not _ran_tool(messages, "search_papers"):
+            return [{
+                "id": "call_search_1", "type": "function", "index": 0,
+                "function": {"name": "mcp__research__search_papers",
+                             "arguments": json.dumps({"query": "contrastive learning speaker verification", "max_results": 3})},
+            }], None, finish
+        title = _paper_title(blob)
+        return None, (
+            f'Found relevant arXiv evidence. ```json {{"summary": "Contrastive objectives improve cross-lingual '
+            f'speaker verification robustness; leading result: {title}.", "citations": ['
+            f'{{"claim": "contrastive objectives improve cross-lingual robustness", "title": "{title}", '
+            f'"url": "https://arxiv.org/abs/1705.03670v1"}}]}} ```'
+        ), "stop"
+
+    if stage in ("experiment", "repair"):
+        if not _ran_tool(messages, "bash"):
+            return [{
+                "id": "call_bash_1", "type": "function", "index": 0,
+                "function": {"name": "bash",
+                             "arguments": json.dumps({
+                                 "command": "echo 'baseline extraction check: acc=0.82' > metrics.txt && cat metrics.txt",
+                                 "description": "Run the baseline extraction check inside the sandbox"})},
+            }], None, finish
+        executed = "acc=0.82" in blob
+        metrics = {"accuracy": 0.82} if executed else {}
+        report = {
+            "experiment": "baseline extraction",
+            "command": "echo 'baseline extraction check: acc=0.82' > metrics.txt && cat metrics.txt",
+            "status": "success" if executed else "failed",
+            "metrics": metrics,
+            "log_excerpt": "baseline extraction check: acc=0.82" if executed else blob[-200:],
+        }
+        return None, f'```json {json.dumps(report)} ```', "stop"
+
+    if stage == "review":
+        # the reviewer is toolless: its evidence is the experiment JSON embedded
+        # in the prompt (json.dumps escapes quotes, so match on plain tokens)
+        everything = json.dumps(messages, default=str).replace("\\", "")
+        approved = ('"status": "success"' in everything) or ('"status":"success"' in everything)
+        return None, (
+            '```json {"approved": ' + str(approved).lower() + ', "confidence": 0.9, "issues": []} ```'
+        ), "stop"
+
+    return None, "Done.", "stop"
 
 
 @app.post("/v1/chat/completions")
 async def chat(request: Request):
     body = await request.json()
     messages = body.get("messages", [])
-    state = _extract(messages)
-
-    tool_calls: list[dict] | None = None
-    content: str | None = None
-    finish = "tool_calls"
-
-    if not state["searched"]:
-        tool_calls = [{
-            "id": "call_search_1", "type": "function", "index": 0,
-            "function": {"name": "mcp__research__search_papers",
-                         "arguments": json.dumps({"query": "contrastive learning speaker verification", "max_results": 3})},
-        }]
-    elif not state["ran_bash"]:
-        tool_calls = [{
-            "id": "call_bash_1", "type": "function", "index": 0,
-            "function": {"name": "bash",
-                         "arguments": json.dumps({
-                             "command": "echo 'baseline extraction check: acc=0.82' > metrics.txt && cat metrics.txt",
-                             "description": "Run the baseline extraction check inside the sandbox"})},
-        }]
-    else:
-        finish = "stop"
-        denied = "requires approval" in state["tool_blob"] or "DENIED by policy" in state["tool_blob"]
-        title = _paper_title(state)
-        gate = ("The bash verification step was gated by the ResearchOps guardrail policy in this run; "
-                "with auto-approval the metrics step would execute in the sandbox." if denied else
-                "The sandbox command executed and its output is included in the run log.")
-        content = (
-            f"## ResearchOps report\n\nBased on arXiv evidence retrieved through the research MCP server, "
-            f"the leading result is \u201c{title}\u201d. {gate}\n\n"
-            f"Sources: [arXiv search results retrieved this session]."
-        )
+    tool_calls, content, finish = _decide(messages)
 
     async def sse():
         chunk_id = f"chatcmpl-mock-{int(time.time()*1000)}"

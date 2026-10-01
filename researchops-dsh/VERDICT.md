@@ -69,3 +69,27 @@ node ./apps/cli/lib/bin.js researchops "Survey contrastive learning for speaker 
 换真实模型:profile patch 里把 `RESEARCHOPS_LLM_BASE_URL` 指向
 `https://api.deepseek.com/v1`、`agent-default-model.model` 改 `deepseek-chat`
 即可(llm-pi-ai 支持任意 OpenAI 兼容网关,纯配置)。
+
+---
+
+## 里程碑 1 交付(路线 A 已启动):编排图移植为 cordis 插件 ✅
+
+`@researchops/dsh-orchestrator` + 更新后的 `@researchops/dsh-bundle`,端到端验证
+exit 0(2026-09-26):
+
+```
+dsh: researchops: stage planner: started (toolless)      → 任务图 JSON 解析
+dsh: researchops: stage research: started (5 tools)      → 真实 arXiv 检索 + 引用接地 ✅
+dsh: researchops: stage experiment: started (6 tools)    → 沙箱执行 + 指标解析
+dsh: researchops: evaluation: success=true repairs=0/2   → 确定性评估
+dsh: researchops: stage review: started (toolless)       → 评审判定
+report.md 写入 + exit 0
+```
+
+映射实现:`graph/nodes.py` 各阶段 Agent → `agents.create` + `setup(agentCtx)` 里的
+`agentCtx.tools.restrict({allow})`(per-agent 工具子集);`graph/routing.py` →
+`pipeline.ts` 纯函数(任务图拓扑排序、成功判定、引用接地);`graph/report.py` →
+`buildReport.ts`。诊断→修复循环已就位(maxRepairAttempts 配置)。
+
+里程碑 2 待办:管线状态持久化为 session 事件(现在是内存+report.md)、最终签批
+接 `ctx.approval` 应答器、并行阶段(experimental agent-team)。

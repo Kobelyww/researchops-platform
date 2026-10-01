@@ -3,6 +3,9 @@
 # by id; the `insert` block adds new rows. Later user patches still win.
 #
 # What this demonstrates (mapping from researchops-agent):
+#   - graph/nodes.py + routing.py  → @researchops/dsh-orchestrator (stage
+#     agents with scoped tool subsets, ported routing, diagnose→repair,
+#     deterministic report) replacing the one-shot headless runner
 #   - guardrails/policy.py + permissions.py → @researchops/dsh-guardrail row
 #   - researchops.mcp.research_server (Python, arXiv/S2/Web) → dsh-mcp-client
 #     row: the SAME Python MCP server the in-process gateway exposes, mounted
@@ -13,11 +16,10 @@
 - id: system-prompt
   config:
     personaSuffix: >-
-      Your working directory is {{cwd}}. You are a ResearchOps research
-      operator: decompose the goal, gather papers with the research tools,
-      run verification commands when needed, and produce a concise cited
-      summary. Cite every factual claim with a URL you actually retrieved.
-      Never invent metrics.
+      Your working directory is {{cwd}}. You are a ResearchOps stage agent:
+      execute exactly the stage instruction you are given, use only your
+      scoped tools, and end with the JSON block the instruction specifies.
+      Cite only URLs you actually retrieved. Never invent metrics.
     personaPrefix: >-
       You are a ResearchOps agent powered by the {{model}} model.
 
@@ -29,7 +31,7 @@
     providers:
       researchops:
         api: openai-completions
-        baseURL: !!js process.env.RESEARCHOPS_LLM_BASE_URL ?? 'http://127.0.0.1:8901/v1'
+        baseURL: 'http://127.0.0.1:8901/v1'
         apiKeyEnv: 'RESEARCHOPS_LLM_API_KEY'
         models:
           - id: researchops-mock-1
@@ -43,7 +45,12 @@
 - id: agent-default-model
   config:
     provider: researchops
-    model: !!js process.env.RESEARCHOPS_LLM_MODEL ?? 'researchops-mock-1'
+    model: researchops-mock-1
+
+# The headless one-shot runner is replaced by the ResearchOps orchestrator:
+# same startup service (task/argv/stdin), pipeline instead of a single agent.
+- id: headless-runner
+  disabled: true
 
 - insert:
     # ResearchOps guardrail: risk-classified allow/deny/ask + call budget.
@@ -55,7 +62,14 @@
       name: '@researchops/dsh-guardrail'
       config:
         autoApprove: true
-        maxToolCalls: !!js Number(process.env.RESEARCHOPS_MAX_TOOL_CALLS ?? 200)
+        maxToolCalls: 200
+
+    # ResearchOps pipeline orchestrator (replaces the one-shot runner).
+    - id: researchops-runner
+      name: '@researchops/dsh-orchestrator'
+      inject: ['headlessStartup']
+      config:
+        maxRepairAttempts: 2
 
     # Mount the existing Python research MCP server (arXiv, Semantic Scholar,
     # allowlisted web fetch) — no porting, stdio child process.
@@ -64,10 +78,9 @@
       config:
         transport: stdio
         serverName: research
-        command: !!js process.env.RESEARCHOPS_MCP_PYTHON ?? '.venv/bin/python'
+        command: '/Users/haobowang/ZCodeProject/researchops-agent/.venv/bin/python'
         args: ['-m', 'researchops.mcp.research_server']
-        cwd: !!js process.env.RESEARCHOPS_MCP_CWD ??
-          '/Users/haobowang/ZCodeProject/researchops-agent'
+        cwd: '/Users/haobowang/ZCodeProject/researchops-agent'
         env: {}
         toolCallTimeoutMs: 30000
         failOnStartupError: false
