@@ -129,3 +129,16 @@ agent-team 并行阶段评估。
 P2 待办:房间写句柄生命周期接入(裸 session 的 persistence materialize)、
 @mention 路由到 stage-agent followup、Discord 式群聊 UI(web/desktop client)、
 确定性头像渲染。
+
+---
+
+## Pantheon P2 交付 ✅
+
+1. **`--ask <member> "问题"` 问答流**:操作者在 Agora 里 @ 任意神祇,该 agent
+   以自己的工具域开一轮回复,问答双方都写入房间(headless 即可验证)。
+2. **房间 HTML 渲染**:`renderRoomHtml` 每次发言后自动重生成自包含暗色群聊页
+   (成员侧栏 + 确定性头像着色 + 消息气泡),浏览器/桌面直接打开。
+3. **dsh-headless startup 允许未知选项**(fork 修改,`allowUnknownOption`)。
+
+P3(未做):房间写句柄接入 persistence 生命周期(现在用 JSONL 边车替代)、
+god↔god 自主派活、房间 UI 进 dsh web client 原生渲染。

@@ -15,7 +15,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -106,6 +106,51 @@ export class PantheonService {
     }
     session.append('pantheon/message', message)
     this.writeRoomLine(session.id, message)
+    this.renderRoomHtml(roomName)
+  }
+
+  /** Regenerate the self-contained Discord-style HTML chat file for a room. */
+  renderRoomHtml(roomName: string): string {
+    const history = this.history(roomName)
+    const path = this.roomFile(roomName).replace(/\.jsonl$/, '.html')
+    const hue = (seed: string): number => {
+      let h = 0
+      for (const c of seed) h = (h * 31 + c.charCodeAt(0)) % 360
+      return h
+    }
+    const members = new Map<string, { name: string; avatarSeed: string }>()
+    for (const e of this.roomEvents(roomName)) members.set(e.from.name, e.from)
+    const avatar = (name: string, seed: string): string =>
+      `<div class="avatar" style="background:hsl(${hue(seed)},55%,42%)">${name[0]}</div>`
+    const messages = history.map((m) => {
+      const meta = members.get(m.from) ?? { name: m.from, avatarSeed: m.from }
+      return `<div class="msg"><div class="row">${avatar(meta.name, meta.avatarSeed)}<span class="name">${meta.name}</span></div><div class="text">${m.text.replace(/</g, '&lt;')}</div></div>`
+    }).join('\n')
+    const roster = [...members.values()].map((m) =>
+      `<div class="member">${avatar(m.name, m.avatarSeed)}<span>${m.name}</span></div>`).join('')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>ResearchOps Agora — ${roomName}</title><style>
+body{background:#0d1117;color:#e6edf3;font-family:ui-sans-serif,system-ui;margin:0;display:flex;height:100vh}
+aside{width:220px;background:#010409;border-right:1px solid #21262d;padding:16px}
+.member{display:flex;align-items:center;gap:8px;padding:6px;color:#9198a1}
+main{flex:1;padding:24px;overflow-y:auto}
+h1{font-size:16px;color:#58a6ff}
+.msg{background:#161b22;border:1px solid #21262d;border-radius:12px;padding:12px 16px;margin:10px 0}
+.row{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
+.name{font-weight:600}
+.text{white-space:pre-wrap;font-size:14px;line-height:1.5}
+</style></head><body><aside><h1>🏛 The Agora</h1>${roster}</aside><main><h1>${roomName}</h1>${messages}</main></body></html>`
+    try {
+      writeFileSync(path, html)
+    } catch { /* render is auxiliary */ }
+    return path
+  }
+
+  private roomEvents(roomName: string): Array<{ from: { name: string; avatarSeed: string }; text: string; kind: string }> {
+    const session = this.rooms.get(roomName)
+    if (session === undefined) return []
+    const events = session.snapshotEvents() as unknown as Array<{ type: string; data?: PantheonMessage }>
+    return events.filter(e => e.type === 'pantheon/message' && e.data !== undefined).map(e => e.data as PantheonMessage)
   }
 
   /** The room's session (callers flush it like any session). */

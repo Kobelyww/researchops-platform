@@ -36,7 +36,7 @@ import type {} from '@deepseek-ai/dsh-headless'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@researchops/dsh-pantheon'
-import { memberForStage } from '@researchops/dsh-pantheon'
+import { HERMES, memberById, memberForStage } from '@researchops/dsh-pantheon'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -46,7 +46,7 @@ import * as pipeline from './pipeline.ts'
 export const name = 'researchops-runner'
 
 /** Core services required before the pipeline can start. */
-export const inject = ['headlessStartup', 'agentDefaultModel', 'agents', 'sessions', 'pantheon']
+export const inject = ['headlessStartup', 'agentDefaultModel', 'agents', 'sessions', 'pantheon', 'cmdlineArgs']
 
 /** Plugin config. */
 export interface Config {
@@ -381,6 +381,51 @@ async function run(
 }
 
 /**
+ * Pantheon ask flow: the operator @mentions one god; the god's agent answers
+ * in its own turn; question and reply land in the shared 'asks' room.
+ */
+async function ask(
+  ctx: Context,
+  memberId: string,
+  question: string,
+  io: { stdout: { write(chunk: string): unknown }; stderr: { write(chunk: string): unknown }; exit(code: number): void },
+): Promise<void> {
+  await ctx.get('loader')?.await()
+  const pantheon = ctx.get('pantheon')
+  const agents = ctx.get('agents')
+  const defaultModel = ctx.get('agentDefaultModel')
+  const sessions = ctx.get('sessions')
+  if (pantheon === undefined || agents === undefined || defaultModel === undefined || sessions === undefined) return
+  const member = memberById(memberId) ?? (memberId === 'hermes' ? HERMES : undefined)
+  if (member === undefined) {
+    throw new Error(`unknown pantheon member "${memberId}" (known: athena, apollo, hephaestus, argus, hermes)`)
+  }
+  const roomName = 'asks'
+  pantheon.openRoom(roomName)
+  pantheon.post(roomName, 'hermes', `Operator asks ${member.name}: ${question}`, 'operator')
+  progress(io.stderr, `asking ${member.name} (${member.role})`)
+
+  const selection = defaultModel.currentSelection()
+  const kind: keyof typeof STAGE_TOOLS = member.id === 'apollo' ? 'research'
+    : member.id === 'hephaestus' ? 'experiment'
+    : member.id === 'argus' ? 'review' : 'planner'
+  void memberForStage
+  const run = await runStage(agents, selection, process.cwd(), {
+    kind, persona: member.name,
+    prompt: `[ResearchOps ASK:${member.id}]\nThe operator of the Agora asks you directly: ${question}\nAnswer as ${member.name} (${member.role}). Be concise and concrete.`,
+  }, io.stderr)
+  stageAgentsForFlush.push(run.agent)
+  pantheon.post(roomName, member.id, run.output)
+  await sessions.flush(run.agent.session).catch(() => undefined)
+  const html = pantheon.renderRoomHtml(roomName)
+  io.stdout.write(`[${member.name}] ${run.output}\n\nroom rendered → ${html}\n`)
+  io.exit(0)
+}
+
+/** Sessions to flush at exit (ask flow has no pipeline state). */
+const stageAgentsForFlush: Agent[] = []
+
+/**
  * Mount the runner. It waits for the headless startup service (task/stdin/argv)
  * the same way the one-shot runner does, so `dsh --profile researchops "goal"`
  * drives the pipeline.
@@ -399,6 +444,13 @@ export function apply(ctx: Context, config: Config): void {
     try {
       const task = startup.task ?? ''
       if (task.trim() === '') throw new Error('a task is required')
+      const argv = ctx.get('cmdlineArgs')?.get() ?? []
+      const askIdx = argv.indexOf('--ask')
+      const askMember = argv[askIdx + 1]
+      if (askIdx >= 0 && askMember !== undefined) {
+        await ask(ctx, askMember, task.replace(/^--ask\s+\S+\s*/, ''), io)
+        return
+      }
       await run(ctx, config, task, io)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
