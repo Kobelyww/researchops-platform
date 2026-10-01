@@ -1,0 +1,73 @@
+# The ResearchOps bundle patch: mounts the vertical-slice features on top of
+# dsh-base + dsh-headless. Top-level rows REPLACE the base row's whole config
+# by id; the `insert` block adds new rows. Later user patches still win.
+#
+# What this demonstrates (mapping from researchops-agent):
+#   - guardrails/policy.py + permissions.py → @researchops/dsh-guardrail row
+#   - researchops.mcp.research_server (Python, arXiv/S2/Web) → dsh-mcp-client
+#     row: the SAME Python MCP server the in-process gateway exposes, mounted
+#     over stdio with zero porting
+#   - model routing (llm/router.py) → llm-pi-ai route + agent-default-model
+#   - agents' ResearchOps persona → system-prompt row override
+
+- id: system-prompt
+  config:
+    personaSuffix: >-
+      Your working directory is {{cwd}}. You are a ResearchOps research
+      operator: decompose the goal, gather papers with the research tools,
+      run verification commands when needed, and produce a concise cited
+      summary. Cite every factual claim with a URL you actually retrieved.
+      Never invent metrics.
+    personaPrefix: >-
+      You are a ResearchOps agent powered by the {{model}} model.
+
+# Model route override: any OpenAI-compatible gateway. The offline demo points
+# at the scripted mock server; point RESEARCHOPS_LLM_BASE_URL at
+# https://api.deepseek.com/v1 with RESEARCHOPS_LLM_API_KEY for a real model.
+- id: llm-pi-ai
+  config:
+    providers:
+      researchops:
+        api: openai-completions
+        baseURL: !!js process.env.RESEARCHOPS_LLM_BASE_URL ?? 'http://127.0.0.1:8901/v1'
+        apiKeyEnv: 'RESEARCHOPS_LLM_API_KEY'
+        models:
+          - id: researchops-mock-1
+            name: ResearchOps Mock
+            contextWindow: 131072
+            maxTokens: 8192
+          - id: deepseek-chat
+            name: DeepSeek Chat
+
+# Default agent model selection for this profile (replaces base config).
+- id: agent-default-model
+  config:
+    provider: researchops
+    model: !!js process.env.RESEARCHOPS_LLM_MODEL ?? 'researchops-mock-1'
+
+- insert:
+    # ResearchOps guardrail: risk-classified allow/deny/ask + call budget.
+    # NOTE (slice finding): !!js expressions evaluate against the loader
+    # context, not process.env — operator config belongs in the user's
+    # profile cordis.patch.yml (Harness home), which wins per row id.
+    # autoApprove=true here maps RESEARCHOPS_APPROVAL_AUTO for the demo.
+    - id: researchops-guardrail
+      name: '@researchops/dsh-guardrail'
+      config:
+        autoApprove: true
+        maxToolCalls: !!js Number(process.env.RESEARCHOPS_MAX_TOOL_CALLS ?? 200)
+
+    # Mount the existing Python research MCP server (arXiv, Semantic Scholar,
+    # allowlisted web fetch) — no porting, stdio child process.
+    - id: researchops-research-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: stdio
+        serverName: research
+        command: !!js process.env.RESEARCHOPS_MCP_PYTHON ?? '.venv/bin/python'
+        args: ['-m', 'researchops.mcp.research_server']
+        cwd: !!js process.env.RESEARCHOPS_MCP_CWD ??
+          '/Users/haobowang/ZCodeProject/researchops-agent'
+        env: {}
+        toolCallTimeoutMs: 30000
+        failOnStartupError: false

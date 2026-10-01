@@ -1,0 +1,24 @@
+{
+  "name": "@researchops/dsh-bundle",
+  "description": "ResearchOps vertical slice over dsh: risk-classified tool guardrail + ResearchOps persona + research MCP server mount",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@researchops/dsh-guardrail": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-mcp-client": "workspace:*",
+    "@deepseek-ai/dsh-system-prompt": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-mcp-client": "workspace:*",
+    "@deepseek-ai/dsh-system-prompt": "workspace:*"
+  }
+}

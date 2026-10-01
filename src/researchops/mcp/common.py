@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import contextlib
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..config import load_settings
 from ..sandbox.manager import SandboxPolicy, create_sandbox
 
 
-def make_server(name: str, instructions: str) -> FastMCP:
-    return FastMCP(name=name, instructions=instructions, stateless_http=False)
+def make_server(name: str, instructions: str) -> MCPServer:
+    return MCPServer(name=name, instructions=instructions)
 
 
 @contextlib.asynccontextmanager
@@ -35,6 +35,6 @@ async def experiment_tools():
         await sandbox.cleanup()
 
 
-def run_server(server: FastMCP) -> None:
+def run_server(server: MCPServer) -> None:
     """stdio transport entrypoint (`python -m researchops.mcp.<server>`)."""
-    server.run()
+    server.run(transport="stdio")
