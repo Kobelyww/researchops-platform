@@ -74,6 +74,18 @@ def _paper_title(blob: str) -> str:
 
 def _decide(messages: list[dict]) -> tuple[list[dict] | None, str | None, str]:
     """Returns (tool_calls, content, finish_reason) for this stage request."""
+    m_ask = re.search(r"\[ResearchOps ASK:(\w+)\]", "\n".join(
+        (m.get("content") if isinstance(m.get("content"), str) else
+         "".join(b.get("text", "") for b in m.get("content") or [] if isinstance(b, dict)))
+        for m in messages if m.get("role") == "user"))
+    if m_ask:
+        god = {"athena": "Athena", "apollo": "Apollo", "hephaestus": "Hephaestus",
+               "argus": "Argus", "hermes": "Hermes"}.get(m_ask.group(1), "Hermes")
+        return None, (
+            f"I am {god}. Concretely: the baseline extraction is reproducible in the sandbox, "
+            "the arXiv evidence is verified, and I recommend publishing with the current citation set."
+        ), "stop"
+
     stage = _stage(messages)
     blob = _tool_blob(messages)
     finish = "tool_calls"
