@@ -64,6 +64,10 @@
         autoApprove: true
         maxToolCalls: 200
 
+    # The Agora room service (Pantheon P1): durable group-room sessions.
+    - id: researchops-pantheon
+      name: '@researchops/dsh-pantheon'
+
     # ResearchOps pipeline orchestrator (replaces the one-shot runner).
     # signOff: 'approval' (default) routes the final publish through the
     # approval seam; 'auto' is the headless-CI mode that publishes on review

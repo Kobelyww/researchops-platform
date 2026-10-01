@@ -1,0 +1,25 @@
+{
+  "name": "@researchops/dsh-pantheon",
+  "description": "The Agora: durable group-room service where ResearchOps stage agents post as named members (Athena/Apollo/Hephaestus/Argus) — the core data plane for the Pantheon group-chat surface",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-session": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*"
+  }
+}

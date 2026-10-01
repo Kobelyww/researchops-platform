@@ -115,3 +115,17 @@ report.md 写入 + exit 0
 
 排期中(milestone 3):管线状态作为一等 session 事件投影、experimental
 agent-team 并行阶段评估。
+
+---
+
+## Pantheon P1 交付(对标 Hermes v0.21 万神殿)✅
+
+`@researchops/dsh-pantheon`:**Agora 房间服务** — 四个阶段 agent 注册为希腊神
+名册成员(**Athena**=规划、**Apollo**=研究、**Hephaestus**=锻造实验、**Argus**
+=百眼评审,orchestrator 即 **Hermes** 信使),每阶段产出以身份消息写入持久房间
+日志(`pantheon/message` session 事件 + `pantheon/<room>.jsonl` 双写)。实测
+房间日志完整呈现"诸神议事"全流程。
+
+P2 待办:房间写句柄生命周期接入(裸 session 的 persistence materialize)、
+@mention 路由到 stage-agent followup、Discord 式群聊 UI(web/desktop client)、
+确定性头像渲染。

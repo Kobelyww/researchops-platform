@@ -35,6 +35,8 @@ import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-headless'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type {} from '@researchops/dsh-pantheon'
+import { memberForStage } from '@researchops/dsh-pantheon'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -44,7 +46,7 @@ import * as pipeline from './pipeline.ts'
 export const name = 'researchops-runner'
 
 /** Core services required before the pipeline can start. */
-export const inject = ['headlessStartup', 'agentDefaultModel', 'agents', 'sessions']
+export const inject = ['headlessStartup', 'agentDefaultModel', 'agents', 'sessions', 'pantheon']
 
 /** Plugin config. */
 export interface Config {
@@ -173,7 +175,13 @@ async function run(
   const agents = ctx.get('agents')
   const defaultModel = ctx.get('agentDefaultModel')
   const sessions = ctx.get('sessions')
+  const pantheon = ctx.get('pantheon')
   if (agents === undefined || defaultModel === undefined || sessions === undefined) return
+  const roomName = `run-${randomUUID().slice(0, 8)}`
+  if (pantheon !== undefined) {
+    const roomId = pantheon.openRoom(roomName)
+    progress(io.stderr, `agora room "${roomName}" open (session ${String(roomId)})`)
+  }
 
   const selection = defaultModel.currentSelection()
   const cwd = process.cwd()
@@ -193,6 +201,10 @@ async function run(
     stageAgents.push(run.agent)
     return run
   }
+  const proclaim = (kind: keyof typeof STAGE_TOOLS, text: string): void => {
+    if (pantheon === undefined) return
+    pantheon.post(roomName, memberForStage(kind).id, text)
+  }
   let evidence = ''
 
   // ---- plan ---------------------------------------------------------------
@@ -204,6 +216,7 @@ async function run(
     'Prefer 2-4 tasks. The last task should be an experiment that verifies the goal empirically.')
   state.plan = pipeline.parsePlan(planner.output).tasks
   progress(io.stderr, `plan: ${state.plan.map(t => `${t.id}:${t.kind}`).join(', ')}`)
+  proclaim('planner', `The task graph is set: ${state.plan.map(t => `${t.id} (${t.kind}) ${t.title}`).join('; ')}.`)
 
   // ---- stage loop (port of graph routing) ---------------------------------
   let guard = 0
@@ -224,6 +237,7 @@ async function run(
       state.findings.push(run.output)
       evidence += toolResultText(run.agent.session) + '\n'
       state.citations.push(...pipeline.parseCitations(run.output))
+      proclaim(next.kind, run.output.slice(0, 1200))
       next.status = 'done'
       continue
     }
@@ -236,9 +250,11 @@ async function run(
       'Create any needed files, run the experiment with the bash tool, and parse real numbers from output. ' +
       'End with a fenced JSON block: {"experiment": str, "command": str, "status": "success|failed", "metrics": {"name": number}, "log_excerpt": str}. ' +
       'Never invent metrics — parse them from real command output.')
-    state.experiments.push(pipeline.parseExperiment(run.output))
+    const result = pipeline.parseExperiment(run.output)
+    state.experiments.push(result)
     evidence += toolResultText(run.agent.session) + '\n'
-    next.status = pipeline.evaluateSuccess(state) ? 'done' : 'failed'
+    proclaim('experiment', `Forge report — ${result.name}: ${result.status}. Metrics: ${JSON.stringify(result.metrics)}. ${result.logExcerpt.slice(0, 400)}`)
+    next.status = result.status === 'success' ? 'done' : 'failed'
     if (next.status === 'failed') break // fall through to diagnose
   }
 
@@ -311,6 +327,8 @@ async function run(
     { kind: 'review', persona: 'reviewer', prompt: reviewPrompt }, io.stderr, reviewSetup)
   stageAgents.push(reviewRun.agent)
   state.review = pipeline.parseReview(reviewRun.output, deterministic)
+  proclaim('review', `Verdict: approved=${state.review.approved}, confidence=${state.review.confidence.toFixed(2)}. ${state.review.issues.join('; ')}`)
+  if (pantheon !== undefined) pantheon.post(roomName, 'hermes', `Pipeline complete (success=${success}). The report is ready; publication ${publishApproved ? 'approved' : 'awaits the operator'}.`, 'system')
   // approval flow evidence: a denied ask surfaces as an error tool result
   const reviewEvents = toolResultText(reviewRun.agent.session)
   progress(io.stderr, `review evidence: ${reviewEvents.length} chars, publish-name=${reviewEvents.includes('researchops_publish_report')}, approval-denied=${reviewEvents.includes('requires approval')}`)
@@ -333,6 +351,10 @@ async function run(
   }
   for (const agent of stageAgents) {
     await sessions.flush(agent.session).catch(() => undefined)
+  }
+  const roomSession = pantheon?.sessionOf(roomName)
+  if (roomSession !== undefined) {
+    await sessions.flush(roomSession).catch(() => undefined)
   }
   io.stdout.write(report + '\n')
   // durable pipeline-state artifact (milestone 2): the state that a
