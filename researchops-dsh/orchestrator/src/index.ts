@@ -428,19 +428,34 @@ async function ask(
   progress(io.stderr, `asking ${member.name} (${member.role})`)
 
   const selection = defaultModel.currentSelection()
-  const kind: keyof typeof STAGE_TOOLS = member.id === 'apollo' ? 'research'
+  let kind: keyof typeof STAGE_TOOLS = member.id === 'apollo' ? 'research'
     : member.id === 'hephaestus' ? 'experiment'
       : member.id === 'argus' ? 'review' : 'planner'
   void memberForStage
-  const run = await runStage(agents, selection, process.cwd(), {
-    kind, persona: member.name,
-    prompt: `[ResearchOps ASK:${member.id}]\nThe operator of the Agora asks you directly: ${question}\nAnswer as ${member.name} (${member.role}). Be concise and concrete.`,
-  }, io.stderr)
-  stageAgentsForFlush.push(run.agent)
-  pantheon.post(roomName, member.id, run.output)
-  await sessions.flush(run.agent.session).catch(() => undefined)
+  let current = member
+  let prompt = `[ResearchOps ASK:${member.id}]\nThe operator of the Agora asks you directly: ${question}\nAnswer as ${member.name} (${member.role}). Be concise and concrete.`
+  // multi-hop: a god's answer may @mention another god; Hermes routes the
+  // follow-up (max 2 hops) so delegation chains run inside one invocation.
+  for (let hop = 0; hop < 3; hop++) {
+    const run = await runStage(agents, selection, process.cwd(), {
+      kind, persona: current.name, prompt,
+    }, io.stderr)
+    stageAgentsForFlush.push(run.agent)
+    pantheon.post(roomName, current.id, run.output)
+    const nextMention = run.output.match(/@(athena|apollo|hephaestus|argus)\b/)
+    const nextId = nextMention?.[1]
+    if (nextId === undefined || nextId === current.id) break
+    const next = memberById(nextId)
+    if (next === undefined) break
+    pantheon.post(roomName, 'hermes', `Routing ${current.name}'s request → @${next.id}.`, 'system')
+    prompt = `[ResearchOps ASK:${next.id}]\n${current.name} delegates to you from the Agora. Their question and answer:\n${run.output.slice(0, 1200)}\n\nRespond as ${next.name} (${next.role}) with your part of the work.`
+    current = next
+    kind = next.id === 'apollo' ? 'research' : next.id === 'hephaestus' ? 'experiment' : next.id === 'argus' ? 'review' : 'planner'
+  }
+  const lastSession = stageAgentsForFlush.at(-1)?.session
+  if (lastSession !== undefined) await sessions.flush(lastSession).catch(() => undefined)
   const html = pantheon.renderRoomHtml(roomName)
-  io.stdout.write(`[${member.name}] ${run.output}\n\nroom rendered → ${html}\n`)
+  io.stdout.write(`room rendered → ${html}\n`)
   io.exit(0)
 }
 

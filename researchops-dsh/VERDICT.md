@@ -159,3 +159,9 @@ followup 回合,回复以对应神格身份落进房间。实测:
 同时:Agora HTML 加 3 秒自动刷新(直播议事);房间日志路径改用写入时
 process.cwd(修复挂载期解析漂移)。P4 待办:god↔god 多跳链、原生 web client
 渲染。
+
+## Pantheon P4 交付 ✅ multi-hop 派活链
+
+`--ask` 支持 @ 转交接力(最多 3 跳):Apollo 回答里 @hephaestus → Hermes 自动
+路由 → Hephaestus 以自己身份接手应答,全程房间可回看。实测链路:
+Apollo → (route) → Hephaestus,HTML 房间同步渲染。
