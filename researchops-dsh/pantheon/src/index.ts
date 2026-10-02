@@ -126,9 +126,9 @@ export class PantheonService {
       const meta = members.get(m.from) ?? { name: m.from, avatarSeed: m.from }
       return `<div class="msg"><div class="row">${avatar(meta.name, meta.avatarSeed)}<span class="name">${meta.name}</span></div><div class="text">${m.text.replace(/</g, '&lt;')}</div></div>`
     }).join('\n')
-    const roster = [...members.values()].map((m) =>
+    const roster = [...members.values()].map(m =>
       `<div class="member">${avatar(m.name, m.avatarSeed)}<span>${m.name}</span></div>`).join('')
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>ResearchOps Agora — ${roomName}</title><style>
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>ResearchOps Agora — ${roomName}</title><meta http-equiv="refresh" content="3"><style>
 body{background:#0d1117;color:#e6edf3;font-family:ui-sans-serif,system-ui;margin:0;display:flex;height:100vh}
 aside{width:220px;background:#010409;border-right:1px solid #21262d;padding:16px}
 .member{display:flex;align-items:center;gap:8px;padding:6px;color:#9198a1}

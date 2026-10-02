@@ -205,6 +205,10 @@ async function run(
     if (pantheon === undefined) return
     pantheon.post(roomName, memberForStage(kind).id, text)
   }
+  const proclaimAs = (memberId: string, text: string): void => {
+    if (pantheon === undefined) return
+    pantheon.post(roomName, memberId, text)
+  }
   let evidence = ''
 
   // ---- plan ---------------------------------------------------------------
@@ -328,6 +332,24 @@ async function run(
   stageAgents.push(reviewRun.agent)
   state.review = pipeline.parseReview(reviewRun.output, deterministic)
   proclaim('review', `Verdict: approved=${state.review.approved}, confidence=${state.review.confidence.toFixed(2)}. ${state.review.issues.join('; ')}`)
+
+  // ---- council round (Pantheon mutual delegation) --------------------------
+  // Argus may @mention another god with a follow-up request; Hermes routes
+  // each mention to that god's agent as its own turn, and the reply lands in
+  // the room — gods talking to gods, attributed, durable.
+  const mentions = [...reviewRun.output.matchAll(/@(athena|apollo|hephaestus|argus)\b/g)]
+    .map(m => m[1])
+    .filter((id): id is string => id !== undefined && id !== 'argus')
+  for (const mentioned of [...new Set(mentions)].slice(0, 2)) {
+    const request = reviewRun.output.slice(Math.max(0, reviewRun.output.indexOf('@' + mentioned) - 200))
+      .split('\n').filter(l => l.includes('@' + mentioned)).join(' ').slice(0, 600)
+    proclaim('review', `→ @${mentioned} please weigh in: ${request}`)
+    const reply = await stage(mentioned === 'apollo' ? 'research' : mentioned === 'hephaestus' ? 'experiment' : 'planner',
+      mentioned,
+      `[ResearchOps COUNCIL:${mentioned}]\nArgus the reviewer requests your input on the goal "${task}".\n` +
+      `His words: ${request}\nRespond in your own domain, briefly and concretely.`)
+    proclaimAs(mentioned, reply.output.slice(0, 1200))
+  }
   if (pantheon !== undefined) pantheon.post(roomName, 'hermes', `Pipeline complete (success=${success}). The report is ready; publication ${publishApproved ? 'approved' : 'awaits the operator'}.`, 'system')
   // approval flow evidence: a denied ask surfaces as an error tool result
   const reviewEvents = toolResultText(reviewRun.agent.session)
@@ -408,7 +430,7 @@ async function ask(
   const selection = defaultModel.currentSelection()
   const kind: keyof typeof STAGE_TOOLS = member.id === 'apollo' ? 'research'
     : member.id === 'hephaestus' ? 'experiment'
-    : member.id === 'argus' ? 'review' : 'planner'
+      : member.id === 'argus' ? 'review' : 'planner'
   void memberForStage
   const run = await runStage(agents, selection, process.cwd(), {
     kind, persona: member.name,

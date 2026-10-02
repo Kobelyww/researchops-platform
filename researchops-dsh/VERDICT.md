@@ -142,3 +142,20 @@ P2 待办:房间写句柄生命周期接入(裸 session 的 persistence material
 
 P3(未做):房间写句柄接入 persistence 生命周期(现在用 JSONL 边车替代)、
 god↔god 自主派活、房间 UI 进 dsh web client 原生渲染。
+
+---
+
+## Pantheon P3 交付 ✅ 神祇互派活
+
+评审(Argus)可在裁决中 **@mention 诸神**,编排器把每条 @ 路由为该神的
+followup 回合,回复以对应神格身份落进房间。实测:
+
+```
+[Argus]       → @hephaestus please weigh in: ...
+[Hephaestus]  Hephaestus confirms: accuracy 0.82 was parsed live from
+              metrics.txt produced by the sandboxed run...
+```
+
+同时:Agora HTML 加 3 秒自动刷新(直播议事);房间日志路径改用写入时
+process.cwd(修复挂载期解析漂移)。P4 待办:god↔god 多跳链、原生 web client
+渲染。
